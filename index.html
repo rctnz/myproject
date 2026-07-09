@@ -1,0 +1,275 @@
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <math.h>
+
+#define MAX_TEAMS 100
+
+typedef struct {
+    char name[100];
+    float points;
+    int win;
+    int lose;
+    int draw;
+    int goaldiff;
+} team;
+
+int readTable(team teams[], char filename[]) {
+    FILE *fp = fopen(filename, "r");
+    int teamCount = 0;
+    if (fp == NULL) {
+        printf("Cannot open file\n");
+        return 0;
+    }
+    while (teamCount < MAX_TEAMS &&
+           fscanf(fp,
+                  " %99[^,], %f, %d, %d, %d, %d",
+                  teams[teamCount].name,
+                  &teams[teamCount].points,
+                  &teams[teamCount].win,
+                  &teams[teamCount].lose,
+                  &teams[teamCount].draw,
+                  &teams[teamCount].goaldiff) == 6) {
+        teamCount++;
+    }
+    fclose(fp);
+    printf("Read data from %s successful.\n", filename);
+    return teamCount;
+}
+
+void printTable(team teams[], int teamCount) {
+    printf("+----------------------+----------+------+-------+-------+----------+\n");
+    printf("| %-20s | %8s | %4s | %5s | %5s | %8s |\n",
+           "Team name", "points", "wins", "loses", "draws", "GD");
+    printf("+----------------------+----------+------+-------+-------+----------+\n");
+    for (int i = 0; i < teamCount; i++) {
+        printf("| %-20s | %8.2f | %4d | %5d | %5d | %8d |\n",
+               teams[i].name,
+               teams[i].points,
+               teams[i].win,
+               teams[i].lose,
+               teams[i].draw,
+               teams[i].goaldiff);
+    }
+    printf("+----------------------+----------+------+-------+-------+----------+\n");
+}
+
+/* Helper: find a team's index by name (case-sensitive exact match).
+   Returns -1 if not found. */
+int findTeamIndex(team teams[], int teamCount, char name[]) {
+    for (int i = 0; i < teamCount; i++) {
+        if (strcmp(teams[i].name, name) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+/* Clear any leftover newline/characters in stdin after a scanf("%d"...) etc. */
+void clearInputBuffer(void) {
+    int c;
+    while ((c = getchar()) != '\n' && c != EOF) { }
+}
+
+/*
+ * resultMatch
+ * -----------
+ * Input format (single line): team1 team2 goal1 goal2
+ *   e.g.  korea japan 3 1
+ *
+ * Score update rule:
+ *   pointsDiff  = |pointsTeam1 - pointsTeam2|   (difference in accumulated points)
+ *   goalDiff    = |goalTeam1 - goalTeam2|       (goal difference in this match)
+ *   updateScore = 1.0 + (pointsDiff * 0.01) + (goalDiff * 0.5)
+ *
+ * The winner GAINS updateScore points, the loser LOSES updateScore points.
+ * On a draw, no points are exchanged (win/lose/draw counters are still updated).
+ */
+void resultMatch(team teams[], int teamCount) {
+    char line[200];
+    char name1[100], name2[100];
+    int goals1, goals2;
+
+    printf("Enter match result (team1 team2 goals1 goals2): ");
+    clearInputBuffer();
+    if (fgets(line, sizeof(line), stdin) == NULL) {
+        printf("Input error.\n");
+        return;
+    }
+
+    if (sscanf(line, "%99s %99s %d %d", name1, name2, &goals1, &goals2) != 4) {
+        printf("Invalid input format. Expected: team1 team2 goals1 goals2\n");
+        return;
+    }
+
+    int i = findTeamIndex(teams, teamCount, name1);
+    int j = findTeamIndex(teams, teamCount, name2);
+
+    if (i == -1 || j == -1) {
+        printf("One or both teams not found in table.\n");
+        return;
+    }
+    if (i == j) {
+        printf("A team cannot play against itself.\n");
+        return;
+    }
+
+    /* update goal difference stats first */
+    teams[i].goaldiff += (goals1 - goals2);
+    teams[j].goaldiff += (goals2 - goals1);
+
+    /* compute the dynamic score update */
+    float pointsDiff = fabsf(teams[i].points - teams[j].points);
+    int goalDiff = abs(goals1 - goals2);
+    float updateScore = 1.0f + (pointsDiff * 0.01f) + (goalDiff * 0.5f);
+
+    if (goals1 > goals2) {
+        teams[i].win++;
+        teams[j].lose++;
+        teams[i].points += updateScore;
+        teams[j].points -= updateScore;
+    } else if (goals1 < goals2) {
+        teams[j].win++;
+        teams[i].lose++;
+        teams[j].points += updateScore;
+        teams[i].points -= updateScore;
+    } else {
+        teams[i].draw++;
+        teams[j].draw++;
+        /* draw: no points exchanged */
+    }
+
+    printf("Match result recorded: %s %d - %d %s (update score: %.2f)\n",
+           teams[i].name, goals1, goals2, teams[j].name, updateScore);
+}
+
+/*
+ * addTeam
+ * -------
+ * Input format (single line): newteam points
+ *   e.g.  korea 1500.50
+ *
+ * Adds a new team starting at the given points value, with
+ * win/lose/draw/goaldiff all initialised to 0.
+ */
+int addTeam(team teams[], int teamCount) {
+    if (teamCount >= MAX_TEAMS) {
+        printf("Cannot add team: table is full.\n");
+        return teamCount;
+    }
+
+    char line[200];
+    char name[100];
+    float points;
+
+    printf("Enter new team (name points), e.g. korea 1500.50: ");
+    clearInputBuffer();
+    if (fgets(line, sizeof(line), stdin) == NULL) {
+        printf("Input error.\n");
+        return teamCount;
+    }
+
+    if (sscanf(line, "%99s %f", name, &points) != 2) {
+        printf("Invalid input format. Expected: newteam points\n");
+        return teamCount;
+    }
+
+    if (findTeamIndex(teams, teamCount, name) != -1) {
+        printf("A team with that name already exists.\n");
+        return teamCount;
+    }
+
+    strncpy(teams[teamCount].name, name, sizeof(teams[teamCount].name) - 1);
+    teams[teamCount].name[sizeof(teams[teamCount].name) - 1] = '\0';
+    teams[teamCount].points = points;
+    teams[teamCount].win = 0;
+    teams[teamCount].lose = 0;
+    teams[teamCount].draw = 0;
+    teams[teamCount].goaldiff = 0;
+
+    teamCount++;
+    printf("Team '%s' added with %.2f points.\n", name, points);
+    return teamCount;
+}
+
+int deleteTeam(team teams[], int teamCount) {
+    char name[100];
+    printf("Enter team name to delete: ");
+    clearInputBuffer();
+    fgets(name, sizeof(name), stdin);
+    name[strcspn(name, "\n")] = '\0';
+
+    int idx = findTeamIndex(teams, teamCount, name);
+    if (idx == -1) {
+        printf("Team '%s' not found.\n", name);
+        return teamCount;
+    }
+
+    for (int i = idx; i < teamCount - 1; i++) {
+        teams[i] = teams[i + 1];
+    }
+    teamCount--;
+    printf("Team '%s' deleted.\n", name);
+    return teamCount;
+}
+
+/* Comparator: higher points first; ties broken by higher goal difference;
+   further ties broken alphabetically by name. */
+int compareTeams(const void *a, const void *b) {
+    const team *t1 = (const team *)a;
+    const team *t2 = (const team *)b;
+
+    if (t1->points != t2->points) {
+        return (t1->points < t2->points) ? 1 : -1;
+    }
+    if (t1->goaldiff != t2->goaldiff) {
+        return (t1->goaldiff < t2->goaldiff) ? 1 : -1;
+    }
+    return strcmp(t1->name, t2->name);
+}
+
+void sortTeams(team teams[], int teamCount) {
+    qsort(teams, teamCount, sizeof(team), compareTeams);
+    printf("Teams sorted by points, goal difference, then name.\n");
+}
+
+int main() {
+    team teams[MAX_TEAMS];
+    int teamCount = 0;
+    int op;
+
+    while (1) {
+        printf("\nPlease Select a menu\n");
+        printf("1. Read team scoring data.\n");
+        printf("2. Print Scoring table.\n");
+        printf("3. Result a Match\n");
+        printf("4. Add new team\n");
+        printf("5. Delete team\n");
+        printf("6. Sort teams\n");
+        printf("-1. Exit\n");
+        printf("Enter menu option: ");
+        scanf("%d", &op);
+
+        if (op == -1) {
+            break;
+        } else if (op == 1) {
+            printf("Reading team data from input.txt...\n");
+            teamCount = readTable(teams, "input.txt");
+        } else if (op == 2) {
+            printTable(teams, teamCount);
+        } else if (op == 3) {
+            resultMatch(teams, teamCount);
+        } else if (op == 4) {
+            teamCount = addTeam(teams, teamCount);
+        } else if (op == 5) {
+            teamCount = deleteTeam(teams, teamCount);
+        } else if (op == 6) {
+            sortTeams(teams, teamCount);
+        } else {
+            printf("Invalid menu option\n");
+        }
+    }
+
+    printf("End of Program Goodbye\n");
+    return 0;
+}
